@@ -94,11 +94,9 @@ void loop()
   if (IndicateOpen && !IsOpen)
   {
     SetRelay(true);
-    // Wait max n seconds for trap to open
-    int timeout = Time.now() + 10;
-    while (!IsOpen && Time.now() < timeout)
+    int timeout = Time.now() + 10; // Wait max n seconds for trap to open
+    while (!IsTrapOpen() && Time.now() < timeout)
     {
-      IsOpen = IsTrapOpen();
       delay(100);
     }
     delay(400); // keep magnet turned on a bit more
