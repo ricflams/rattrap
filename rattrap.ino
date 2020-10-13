@@ -1,11 +1,11 @@
 // GPIO
 const int PIN_IN_TRAPSENSOR = D1;
-const int PIN_OUT_LIGHT     = D2;
-const int PIN_IN_IR_RIGHT   = D3;
-const int PIN_IN_IR_LEFT    = D4;
-const int PIN_OUT_RELAY     = D5;
-const int PIN_IN_BUTTON     = D6;
-const int PIN_OUT_ACTLED    = D7;
+const int PIN_OUT_LIGHT = D2;
+const int PIN_IN_IR_RIGHT = D3;
+const int PIN_IN_IR_LEFT = D4;
+const int PIN_OUT_RELAY = D5;
+const int PIN_IN_BUTTON = D6;
+const int PIN_OUT_ACTLED = D7;
 bool isButtonPressed() { return digitalRead(PIN_IN_BUTTON) == HIGH; }
 bool isTrapOpen() { return digitalRead(PIN_IN_TRAPSENSOR) == LOW; }
 bool isIrRight() { return digitalRead(PIN_IN_IR_RIGHT) == LOW; }
@@ -13,6 +13,25 @@ bool isIrLeft() { return digitalRead(PIN_IN_IR_LEFT) == LOW; }
 void setRelay(bool on) { digitalWrite(PIN_OUT_RELAY, on ? HIGH : LOW); }
 void setLight(bool on) { digitalWrite(PIN_OUT_LIGHT, on ? HIGH : LOW); }
 void setActLed(bool on) { digitalWrite(PIN_OUT_ACTLED, on ? HIGH : LOW); }
+
+// Motion-detection
+const int DETECTION_PERIOD_SEC = 2;
+const int COOLOFF_MOTION_PERIOD_SEC = 20;
+const int COOLOFF_NO_MOTION_PERIOD_SEC = 4;
+// Monthly detect-start-hour           jan feb mar apr may jun jul aug sep oct nov dec
+const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 21, 22, 22, 21, 21, 20, 20 };
+const int DetectHourEnd = 5;
+typedef enum {
+  StateWaiting,
+  StateDetecting,
+  StateCoolOff
+} State;
+State state = StateWaiting;
+unsigned long stateEndTimeInMsec = 0;
+// Motion IR detectors
+bool motionDetectRight = false;
+bool motionDetectLeft = false;
+char const* motionDirection;
 
 // Trap door
 int isOpen = false;
@@ -22,12 +41,6 @@ int onCommandOpen(String command)
   indicateOpen = true;
   return 0;
 }
-
-// Motion IR detectors
-int motionCount = 0;
-bool motionDetect = false;
-long motionDetectEndTimeInMsec = 0;
-int motionCountEndTimeInSec = 0;
 
 // This routine runs only once upon reset
 void setup()
@@ -63,8 +76,8 @@ void loop()
   if (!isOpen && (indicateOpen || isButtonPressed()))
   {
     setRelay(true);
-    auto timeout = Time.now() + 10; // Wait max 10 seconds for trap to open
-    while (!isTrapOpen() && Time.now() < timeout)
+    auto timeout = millis() + 10000; // Wait max 10 seconds for trap to open
+    while (!isTrapOpen() && millis() < timeout)
     {
       delay(100);
     }
@@ -73,30 +86,54 @@ void loop()
   }
   indicateOpen = false;
 
-  // Update motion detected. Don't detect changes during the debounce
-  // period and only detect actual changes and report on motion detected.
-  if (millis() > motionDetectEndTimeInMsec)
+  // Detect motion
+  switch (state)
   {
-    auto motion = isIrLeft() || isIrRight();
-    if (motion != motionDetect)
-    {
-      motionDetect = motion;
-      motionDetectEndTimeInMsec = millis() + 200; // debounce readings
-      if (motionDetect) // only report motion-detect, not motion-undetect
+    case StateWaiting:
+      if (isIrRight() || isIrLeft())
       {
-        motionCount++;
+        motionDirection = isIrRight() ? "in" : "out";
+        motionDetectRight = false;
+        motionDetectLeft = false;
+        stateEndTimeInMsec = millis() + DETECTION_PERIOD_SEC * 1000;
+        state = StateDetecting;
+        //Particle.publish("detecting", motionDirection);
       }
-    }
-  }
-
-  // Submit motions at regular intervals, if there are any
-  if (Time.now() >= motionCountEndTimeInSec)
-  {
-    if (motionCount > 0)
-    {
-      Particle.publish("motion", String::format("%d", motionCount));
-      motionCount = 0;
-    }
-    motionCountEndTimeInSec = Time.now() + 5*60; // repeat in 5 minutes
+      break;
+    case StateDetecting:
+      if (isIrRight())
+      {
+        motionDetectRight = true;
+      }
+      if (isIrLeft())
+      {
+        motionDetectLeft = true;
+      }
+      if (motionDetectRight && motionDetectLeft)
+      {
+        // We detected something so fire off an event if it's time to detect at all
+        auto detectHourStart = MonthlyDetectHourStart[Time.month() - 1];
+        if (Time.hour() < DetectHourEnd || Time.hour() >= detectHourStart)
+        {
+          Particle.publish("motion_detected", motionDirection);
+        }
+        stateEndTimeInMsec = millis() + COOLOFF_MOTION_PERIOD_SEC * 1000;
+        state = StateCoolOff;
+        //Particle.publish("cooloff", "motion");
+      }
+      else if (millis() > stateEndTimeInMsec)
+      {
+        stateEndTimeInMsec = millis() + COOLOFF_NO_MOTION_PERIOD_SEC * 1000;
+        state = StateCoolOff;
+        //Particle.publish("cooloff", "no motion");
+      }
+      break;
+    case StateCoolOff:
+      if (millis() > stateEndTimeInMsec)
+      {
+        state = StateWaiting;
+        //Particle.publish("waiting");
+      }
+      break;
   }
 }
