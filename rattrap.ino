@@ -40,6 +40,11 @@ int onCommandOpen(String command)
   indicateOpen = true;
   return 0;
 }
+void onReleaseTrap(const char *event, const char *data)
+{
+  indicateOpen = true;
+}
+
 
 // This routine runs only once upon reset
 void setup()
@@ -59,6 +64,7 @@ void setup()
 
   Particle.variable("is_open", isOpen);
   Particle.function("open", onCommandOpen);
+  Particle.subscribe("rat_release_trap", onReleaseTrap, MY_DEVICES);
 }
 
 // This routine gets called repeatedly, like once every 5-15 milliseconds.
@@ -115,7 +121,7 @@ void loop()
         auto hour = Time.hour() + 1 + (month>3 && month<11 ? 1 : 0); // +1 for UTC->CET and +1 if DST, simplified
         if (hour< DetectHourEnd || hour >= MonthlyDetectHourStart[month - 1])
         {
-          Particle.publish("motion_detected", motionDirection);
+          Particle.publish("rat_motion_detected", motionDirection);
         }
         stateEndTimeInMsec = millis() + COOLOFF_PERIOD_MSEC;
         state = StateCoolOff;
