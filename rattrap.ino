@@ -15,9 +15,8 @@ void setLight(bool on) { digitalWrite(PIN_OUT_LIGHT, on ? HIGH : LOW); }
 void setActLed(bool on) { digitalWrite(PIN_OUT_ACTLED, on ? HIGH : LOW); }
 
 // Motion-detection
-const int DETECTION_PERIOD_SEC = 2;
-const int COOLOFF_MOTION_PERIOD_SEC = 20;
-const int COOLOFF_NO_MOTION_PERIOD_SEC = 4;
+const int DETECTION_PERIOD_MSEC = 1500;
+const int COOLOFF_PERIOD_MSEC = 3000;
 // Monthly detect-start-hour           jan feb mar apr may jun jul aug sep oct nov dec
 const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 21, 22, 22, 21, 21, 20, 20 };
 const int DetectHourEnd = 5;
@@ -95,7 +94,7 @@ void loop()
         motionDirection = isIrRight() ? "in" : "out";
         motionDetectRight = false;
         motionDetectLeft = false;
-        stateEndTimeInMsec = millis() + DETECTION_PERIOD_SEC * 1000;
+        stateEndTimeInMsec = millis() + DETECTION_PERIOD_MSEC;
         state = StateDetecting;
         //Particle.publish("detecting", motionDirection);
       }
@@ -112,27 +111,27 @@ void loop()
       if (motionDetectRight && motionDetectLeft)
       {
         // We detected something so fire off an event if it's time to detect at all
-        auto detectHourStart = MonthlyDetectHourStart[Time.month() - 1];
-        if (Time.hour() < DetectHourEnd || Time.hour() >= detectHourStart)
+        auto month = Time.month(); // month is 1-12
+        auto hour = Time.hour() + 1 + (month>3 && month<11 ? 1 : 0); // +1 for UTC->CET and +1 if DST, simplified
+        if (hour< DetectHourEnd || hour >= MonthlyDetectHourStart[month - 1])
         {
           Particle.publish("motion_detected", motionDirection);
         }
-        stateEndTimeInMsec = millis() + COOLOFF_MOTION_PERIOD_SEC * 1000;
+        stateEndTimeInMsec = millis() + COOLOFF_PERIOD_MSEC;
         state = StateCoolOff;
-        //Particle.publish("cooloff", "motion");
+        //Particle.publish("cooloff", motionDirection);
       }
       else if (millis() > stateEndTimeInMsec)
       {
-        stateEndTimeInMsec = millis() + COOLOFF_NO_MOTION_PERIOD_SEC * 1000;
-        state = StateCoolOff;
-        //Particle.publish("cooloff", "no motion");
+        state = StateWaiting;
+        //Particle.publish("nope, waiting");
       }
       break;
     case StateCoolOff:
       if (millis() > stateEndTimeInMsec)
       {
         state = StateWaiting;
-        //Particle.publish("waiting");
+        //Particle.publish("cooled, waiting");
       }
       break;
   }
