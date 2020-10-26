@@ -91,6 +91,12 @@ void loop()
   }
   indicateOpen = false;
 
+  if (isOpen)
+  {
+      state = StateWaiting;
+      return;
+  }
+  
   // Detect motion
   switch (state)
   {
