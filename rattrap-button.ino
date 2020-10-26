@@ -2,9 +2,11 @@
 const int PIN_IN_BUTTON = D1;
 const int PIN_OUT_GREENLED = D4;
 const int PIN_OUT_REDLED = D5;
+const int PIN_OUT_BUZZER = D6;
 bool isButtonPressed() { return digitalRead(PIN_IN_BUTTON) == HIGH; }
 void setGreenLed(bool on) { digitalWrite(PIN_OUT_GREENLED, on ? HIGH : LOW); }
 void setRedLed(bool on) { digitalWrite(PIN_OUT_REDLED, on ? HIGH : LOW); }
+void setBuzzer(bool on) { digitalWrite(PIN_OUT_BUZZER, on ? HIGH : LOW); }
 
 typedef enum {
     Motionless,
@@ -27,6 +29,7 @@ void setup()
   pinMode(PIN_IN_BUTTON, INPUT_PULLDOWN);
   pinMode(PIN_OUT_GREENLED, OUTPUT);
   pinMode(PIN_OUT_REDLED, OUTPUT);
+  pinMode(PIN_OUT_BUZZER, OUTPUT);
   
   Particle.subscribe("rat_motion_detected", onMotionDetected, MY_DEVICES);
 }
@@ -37,6 +40,16 @@ void loop()
   // Flash the light when motion is detected
   if (motion != Motionless)
   {
+      // Buzz briefly
+      for (auto i = 0; i < 4; i++)
+      {
+        setBuzzer(true);
+        delay(30);
+        setBuzzer(false);
+        delay(16);
+      }      
+      
+      // Blink the LED green or red
       for (auto i = 0; i < 7; i++)
       {
         setGreenLed(motion == MotionIn);
@@ -46,6 +59,7 @@ void loop()
         setGreenLed(false);
         delay(50);
       }
+      
       motion = Motionless;
   }
 
