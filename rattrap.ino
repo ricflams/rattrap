@@ -1,8 +1,8 @@
 // GPIO
 const int PIN_IN_TRAPSENSOR = D1;
 const int PIN_OUT_LIGHT = D2;
-const int PIN_IN_IR_RIGHT = D3;
-const int PIN_IN_IR_LEFT = D4;
+const int PIN_IN_IR_LEFT = D3;
+const int PIN_IN_IR_RIGHT = D4;
 const int PIN_OUT_RELAY = D5;
 const int PIN_IN_BUTTON = D6;
 const int PIN_OUT_ACTLED = D7;
@@ -15,10 +15,10 @@ void setLight(bool on) { digitalWrite(PIN_OUT_LIGHT, on ? HIGH : LOW); }
 void setActLed(bool on) { digitalWrite(PIN_OUT_ACTLED, on ? HIGH : LOW); }
 
 // Motion-detection
-const int DETECTION_PERIOD_MSEC = 1500;
+const int DETECTION_PERIOD_MSEC = 2000;
 const int COOLOFF_PERIOD_MSEC = 3000;
 // Monthly detect-start-hour           jan feb mar apr may jun jul aug sep oct nov dec
-const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 21, 22, 22, 21, 21, 20, 20 };
+const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 22, 22, 21, 21, 20, 20, 20 };
 const int DetectHourEnd = 5;
 typedef enum {
   StateWaiting,
