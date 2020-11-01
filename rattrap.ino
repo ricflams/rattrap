@@ -1,38 +1,47 @@
+// This #include statement was automatically added by the Particle IDE.
+#include <HC-SR04.h>
+
 // GPIO
-const int PIN_IN_TRAPSENSOR = D1;
-const int PIN_OUT_LIGHT = D2;
-const int PIN_IN_IR_LEFT = D3;
-const int PIN_IN_IR_RIGHT = D4;
-const int PIN_OUT_RELAY = D5;
-const int PIN_IN_BUTTON = D6;
-const int PIN_OUT_ACTLED = D7;
-bool isButtonPressed() { return digitalRead(PIN_IN_BUTTON) == HIGH; }
-bool isTrapOpen() { return digitalRead(PIN_IN_TRAPSENSOR) == LOW; }
-bool isIrRight() { return digitalRead(PIN_IN_IR_RIGHT) == LOW; }
-bool isIrLeft() { return digitalRead(PIN_IN_IR_LEFT) == LOW; }
-void setRelay(bool on) { digitalWrite(PIN_OUT_RELAY, on ? HIGH : LOW); }
-void setLight(bool on) { digitalWrite(PIN_OUT_LIGHT, on ? HIGH : LOW); }
-void setActLed(bool on) { digitalWrite(PIN_OUT_ACTLED, on ? HIGH : LOW); }
+const int PIN_TRAPSENSOR = D0;
+const int PIN_OUTER_ECHO = D1;
+const int PIN_OUTER_TRIG = D2;
+const int PIN_INNER_ECHO = D3;
+const int PIN_INNER_TRIG = D4;
+const int PIN_RELAY = D5;
+const int PIN_MANUAL_BUTTON = D6;
+
+bool isButtonPressed() { return digitalRead(PIN_MANUAL_BUTTON) == HIGH; }
+bool isTrapOpen() { return digitalRead(PIN_TRAPSENSOR) == LOW; }
+void setRelay(bool on) { digitalWrite(PIN_RELAY, on ? HIGH : LOW); }
 
 // Motion-detection
 const int DETECTION_PERIOD_MSEC = 2000;
 const int COOLOFF_PERIOD_MSEC = 3000;
+const int DETECT_INTERVAL_MSEC = 250;
 // Monthly detect-start-hour           jan feb mar apr may jun jul aug sep oct nov dec
 const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 22, 22, 21, 21, 20, 20, 20 };
 const int DetectHourEnd = 5;
-typedef enum {
-  StateWaiting,
-  StateDetecting,
+typedef enum
+{
+  StateTrapOpen,
+  StateTrapClosed,
+  StateWaitForMotion,
+  StateDetectMotion,
   StateCoolOff
 } State;
-State state = StateWaiting;
+State state = StateWaitForMotion;
 unsigned long stateEndTimeInMsec = 0;
-// Motion IR detectors
-bool motionDetectRight = false;
-bool motionDetectLeft = false;
+// Motion detectors
+HC_SR04 outerSensor = HC_SR04(PIN_OUTER_TRIG, PIN_OUTER_ECHO);
+HC_SR04 innerSensor = HC_SR04(PIN_INNER_TRIG, PIN_INNER_ECHO);
+bool outerMotionDetected = false;
+bool innerMotionDetected = false;
 char const* motionDirection;
+bool hasOuterMotion() { return outerSensor.distCM() < 20; }
+bool hasInnerMotion() { return innerSensor.distCM() < 20; }
 
 // Trap door
+const int ENGAGEMENT_WAIT_MSEC = 10000;
 int isOpen = false;
 volatile bool indicateOpen = false;
 int onCommandOpen(String command)
@@ -45,21 +54,16 @@ void onReleaseTrap(const char *event, const char *data)
   indicateOpen = true;
 }
 
-
 // This routine runs only once upon reset
 void setup()
 {
   Serial.begin(9600);
-
-  pinMode(PIN_IN_TRAPSENSOR, INPUT_PULLDOWN);
-  pinMode(PIN_IN_IR_LEFT, INPUT_PULLUP);
-  pinMode(PIN_IN_IR_RIGHT, INPUT_PULLUP);
-  pinMode(PIN_IN_BUTTON, INPUT_PULLDOWN);
-  pinMode(PIN_OUT_LIGHT, OUTPUT);
-  pinMode(PIN_OUT_RELAY, OUTPUT);
-  pinMode(PIN_OUT_ACTLED, OUTPUT);
-
-  setLight(false);
+  pinMode(PIN_TRAPSENSOR, INPUT_PULLDOWN);
+  pinMode(PIN_MANUAL_BUTTON, INPUT_PULLDOWN);
+  pinMode(PIN_RELAY, OUTPUT);
+  outerSensor.init();
+  innerSensor.init();
+  
   setRelay(false);
 
   Particle.variable("is_open", isOpen);
@@ -67,18 +71,18 @@ void setup()
   Particle.subscribe("rat_release_trap", onReleaseTrap, MY_DEVICES);
 }
 
-// This routine gets called repeatedly, like once every 5-15 milliseconds.
+// This routine gets called repeatedly about once every millisecond
 void loop()
 {
-  // Update open-state and set light on if trap is open
-  if (isOpen != isTrapOpen())
+  // Don't do anything if trap is open
+  if (isTrapOpen())
   {
-    isOpen = isTrapOpen();
-    setLight(isOpen);
+    state = StateTrapOpen;
+    return;
   }
-
-  // If not already open then open trap if so requested
-  if (!isOpen && (indicateOpen || isButtonPressed()))
+  
+  // Always honor requests to open the trap
+  if (indicateOpen || isButtonPressed())
   {
     setRelay(true);
     auto timeout = millis() + 10000; // Wait max 10 seconds for trap to open
@@ -88,39 +92,53 @@ void loop()
     }
     delay(500); // keep magnet turned on a bit more
     setRelay(false);
+    indicateOpen = false;
   }
-  indicateOpen = false;
 
-  if (isOpen)
-  {
-      state = StateWaiting;
-      return;
-  }
-  
   // Detect motion
   switch (state)
   {
-    case StateWaiting:
-      if (isIrRight() || isIrLeft())
+    case StateTrapOpen:
+      //Particle.publish("TrapOpen -> Closed");
+      stateEndTimeInMsec = millis() + ENGAGEMENT_WAIT_MSEC;
+      state = StateTrapClosed;
+      break;
+      
+    case StateTrapClosed:
+      if (millis() > stateEndTimeInMsec)
       {
-        motionDirection = isIrRight() ? "in" : "out";
-        motionDetectRight = false;
-        motionDetectLeft = false;
-        stateEndTimeInMsec = millis() + DETECTION_PERIOD_MSEC;
-        state = StateDetecting;
-        //Particle.publish("detecting", motionDirection);
+        state = StateWaitForMotion;
+        //Particle.publish("TrapClosed -> Wait");
       }
       break;
-    case StateDetecting:
-      if (isIrRight())
+      
+    case StateWaitForMotion:
+      outerMotionDetected = hasOuterMotion();
+      delay(3); // Sleep 3ms to avoid inner/outer sound interferences
+      innerMotionDetected = hasInnerMotion();
+      if (outerMotionDetected || innerMotionDetected)
       {
-        motionDetectRight = true;
+        //char buf[100];
+        //auto innerDist = (int)innerSensor.distCM(); delay(3);
+        //auto outerDist = (int)outerSensor.distCM();
+        //sprintf(buf, "%d %d", innerDist, outerDist);
+        //Particle.publish("distances", buf);
+        motionDirection = outerMotionDetected? "in" : "out";
+        stateEndTimeInMsec = millis() + DETECTION_PERIOD_MSEC;
+        state = StateDetectMotion;
+        //Particle.publish("detecting", motionDirection);
       }
-      if (isIrLeft())
+      else
       {
-        motionDetectLeft = true;
+        delay(DETECT_INTERVAL_MSEC);
       }
-      if (motionDetectRight && motionDetectLeft)
+      break;
+
+    case StateDetectMotion:
+      outerMotionDetected |= hasOuterMotion();
+      delay(3); // Sleep 3ms to avoid inner/outer sound interferences
+      innerMotionDetected |= hasInnerMotion();
+      if (outerMotionDetected && innerMotionDetected)
       {
         // We detected something so fire off an event if it's time to detect at all
         auto month = Time.month(); // month is 1-12
@@ -135,14 +153,19 @@ void loop()
       }
       else if (millis() > stateEndTimeInMsec)
       {
-        state = StateWaiting;
+        state = StateWaitForMotion;
         //Particle.publish("nope, waiting");
       }
+      else
+      {
+        delay(DETECT_INTERVAL_MSEC);
+      }
       break;
+      
     case StateCoolOff:
       if (millis() > stateEndTimeInMsec)
       {
-        state = StateWaiting;
+        state = StateWaitForMotion;
         //Particle.publish("cooled, waiting");
       }
       break;
