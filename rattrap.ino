@@ -23,13 +23,13 @@ const int MonthlyDetectHourStart[] = { 20, 20, 20, 21, 21, 22, 22, 21, 21, 20, 2
 const int DetectHourEnd = 5;
 typedef enum
 {
-  StateTrapOpen,
+  StateAtRest,
   StateTrapClosed,
   StateWaitForMotion,
   StateDetectMotion,
   StateCoolOff
 } State;
-State state = StateWaitForMotion;
+State state = StateAtRest;
 unsigned long stateEndTimeInMsec = 0;
 // Motion detectors
 HC_SR04 outerSensor = HC_SR04(PIN_OUTER_TRIG, PIN_OUTER_ECHO);
@@ -77,7 +77,7 @@ void loop()
   // Don't do anything if trap is open
   if (isTrapOpen())
   {
-    state = StateTrapOpen;
+    state = StateAtRest;
     return;
   }
   
@@ -98,7 +98,7 @@ void loop()
   // Detect motion
   switch (state)
   {
-    case StateTrapOpen:
+    case StateAtRest:
       //Particle.publish("TrapOpen -> Closed");
       stateEndTimeInMsec = millis() + ENGAGEMENT_WAIT_MSEC;
       state = StateTrapClosed;
@@ -113,52 +113,69 @@ void loop()
       break;
       
     case StateWaitForMotion:
-      outerMotionDetected = hasOuterMotion();
-      delay(3); // Sleep 3ms to avoid inner/outer sound interferences
-      innerMotionDetected = hasInnerMotion();
-      if (outerMotionDetected || innerMotionDetected)
       {
-        //char buf[100];
-        //auto innerDist = (int)innerSensor.distCM(); delay(3);
-        //auto outerDist = (int)outerSensor.distCM();
-        //sprintf(buf, "%d %d", innerDist, outerDist);
-        //Particle.publish("distances", buf);
-        motionDirection = outerMotionDetected? "in" : "out";
-        stateEndTimeInMsec = millis() + DETECTION_PERIOD_MSEC;
-        state = StateDetectMotion;
-        //Particle.publish("detecting", motionDirection);
-      }
-      else
-      {
-        delay(DETECT_INTERVAL_MSEC);
+        auto outerDist = (int)outerSensor.distCM();
+        auto innerDist = (int)innerSensor.distCM();
+        outerMotionDetected = outerDist < 20;
+        innerMotionDetected = innerDist < 20;
+        if (outerMotionDetected || innerMotionDetected)
+        {
+          motionDirection = outerMotionDetected? "in" : "out";
+          
+          delay(4);
+          auto outerDist2 = (int)outerSensor.distCM();
+          auto innerDist2 = (int)innerSensor.distCM();
+          char buf[100];
+          sprintf(buf, "%s: %dcm %dcm (%dcm %dcm)", motionDirection, outerDist, innerDist, outerDist2, innerDist2);
+          Particle.publish("motion1", buf);
+          
+          stateEndTimeInMsec = millis() + DETECTION_PERIOD_MSEC;
+          state = StateDetectMotion;
+          //Particle.publish("detecting", motionDirection);
+        }
+        else
+        {
+          delay(DETECT_INTERVAL_MSEC);
+        }
       }
       break;
 
     case StateDetectMotion:
-      outerMotionDetected |= hasOuterMotion();
-      delay(3); // Sleep 3ms to avoid inner/outer sound interferences
-      innerMotionDetected |= hasInnerMotion();
-      if (outerMotionDetected && innerMotionDetected)
       {
-        // We detected something so fire off an event if it's time to detect at all
-        auto month = Time.month(); // month is 1-12
-        auto hour = Time.hour() + 1 + (month>3 && month<11 ? 1 : 0); // +1 for UTC->CET and +1 if DST, simplified
-        if (hour< DetectHourEnd || hour >= MonthlyDetectHourStart[month - 1])
+        auto outerDist = (int)outerSensor.distCM();
+        auto innerDist = (int)innerSensor.distCM();
+        outerMotionDetected |= outerDist < 20;
+        innerMotionDetected |= innerDist < 20;
+        if (outerMotionDetected && innerMotionDetected)
         {
-          Particle.publish("rat_motion_detected", motionDirection);
+            
+          delay(4);
+          auto outerDist2 = (int)outerSensor.distCM();
+          auto innerDist2 = (int)innerSensor.distCM();
+          char buf[100];
+          sprintf(buf, "%s: %dcm %dcm (%dcm %dcm)", motionDirection, outerDist, innerDist, outerDist2, innerDist2);
+          Particle.publish("motion2", buf);
+          
+          // We detected something so fire off an event if it's time to detect at all
+          auto month = Time.month(); // month is 1-12
+          auto hour = Time.hour() + 1 + (month>3 && month<11 ? 1 : 0); // +1 for UTC->CET and +1 if DST, simplified
+          /////if (hour< DetectHourEnd || hour >= MonthlyDetectHourStart[month - 1])
+          {
+            Particle.publish("rat_motion_detected", motionDirection);
+          }
+          stateEndTimeInMsec = millis() + COOLOFF_PERIOD_MSEC;
+          state = StateCoolOff;
+          //Particle.publish("cooloff", motionDirection);
         }
-        stateEndTimeInMsec = millis() + COOLOFF_PERIOD_MSEC;
-        state = StateCoolOff;
-        //Particle.publish("cooloff", motionDirection);
-      }
-      else if (millis() > stateEndTimeInMsec)
-      {
-        state = StateWaitForMotion;
-        //Particle.publish("nope, waiting");
-      }
-      else
-      {
-        delay(DETECT_INTERVAL_MSEC);
+        else if (millis() > stateEndTimeInMsec)
+        {
+          state = StateWaitForMotion;
+          //Particle.publish("nope, waiting");
+        }
+        else
+        {
+          delay(DETECT_INTERVAL_MSEC);
+        }
       }
       break;
       
