@@ -52,9 +52,19 @@ void setup()
 // This routine gets called repeatedly about once every millisecond
 void loop()
 {
-	isOpen = isTrapOpen();
-	if (isOpen)
+    // If trap is open then set the state and wait a bit before checking again
+    if (isTrapOpen())
+    {
+    	isOpen = true;
+		delay(1000);
+        return;
+    }
+    // If trap is no longer open, but this state is still true, then the trap-floor
+    // has just been closed. Wait a bit longer before starting to sense motion, so
+    // your hand can get out of the way.
+    if (isOpen)
 	{
+		isOpen = false;
 		delay(10000);
 		return;
 	}
@@ -73,7 +83,7 @@ void loop()
 		shouldOpenTrap = false;
 	}
 
-	// Detect motion
+	// Detect motion in either direction
 	auto outer = hasOuterMotion();
 	auto inner = hasInnerMotion();
 	if (!outer && !inner)
@@ -81,7 +91,9 @@ void loop()
 	    delay(200);
 	    return;
 	}
-	
+
+    // Motion was detected by (at least) one of the sensors. Run aggressive checks for
+    // some seconds to see if both sensors are triggered and report motion if they are.
 	auto direction = outer ? "in" : "out";
 	auto timeout = millis() + 2000; // Detect motion for max n msec
 	while (millis() < timeout)
