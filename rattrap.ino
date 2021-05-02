@@ -107,7 +107,7 @@ void loop()
 			//sprintf(buf, "%s: %dcm %dcm (%dcm %dcm)", motionDirection, outerDist, innerDist, outerDist, innerDist);
 			//Particle.publish("motion2", buf);
 			Particle.publish("rat_motion_detected", direction);
-			if (Time.hour() >= 22 || Time.hour() < 5)
+			if (Time.hour() >= 22 || Time.hour() < 4)
 			{
 			    // Emit special event during night for triggering email-notice
 				Particle.publish("rat_night_motion", direction);
